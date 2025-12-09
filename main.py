@@ -5,8 +5,11 @@ import os
 
 STIM_DIR = "stimuli"
 OUT_DIR  = "visualisations" 
-SCREEN_W = 1920  
+SCREEN_W = 1920
 SCREEN_H = 1080
+
+output_dir = "export"
+os.makedirs(output_dir, exist_ok=True)
 
 participants = {
     "P01": {
@@ -231,11 +234,18 @@ def trial_metrics(fix_trial):
         'scanpath_len_px': path_len,
     })
 
+# per_trial = (
+#     all_fixations
+#     .groupby(['Participant_ID', 'Image'], as_index=False)
+#     .apply(trial_metrics, include_groups=False)
+#     .reset_index(drop=True)
+# )
+
 per_trial = (
     all_fixations
-    .groupby(['Participant_ID', 'Image'], as_index=False)
-    .apply(trial_metrics, include_groups=False)
-    .reset_index(drop=True)
+    .groupby(['Participant_ID', 'Image'])
+    .apply(trial_metrics)
+    .reset_index()
 )
 
 
@@ -430,3 +440,63 @@ def generate_scanpath_plots():
 generate_scanpath_plots()
 
 
+per_subject_cond = (
+    data
+    .groupby(['Participant_ID', 'condition'])
+    .agg({
+        'n_fixations': 'sum',           # total fixations
+        'mean_fix_dur_ms': 'mean',      # average MFD across images
+        'total_dwell_ms': 'sum',        # total viewing time
+        'dispersion_r': 'mean',         # average dispersion
+        'scanpath_len_px': 'mean',      # average scanpath length
+    })
+    .rename(columns={'mean_fix_dur_ms': 'MFD_ms'})
+    .reset_index()
+)
+
+print("Per-subject vs condition summary:")
+print(per_subject_cond)
+
+# export
+# 1. per_trial
+# add familiarity and condition column
+per_trial['image_is_true'] = per_trial['Image'].str.startswith('true\\')
+trial_rating = all_behaviour[['Participant_ID', 'Image', 'Rating']].drop_duplicates()
+
+per_trial_with_cond = per_trial.merge(
+    trial_rating,
+    on=['Participant_ID', 'Image'],
+    how='left'
+)
+per_trial_with_cond['condition'] = np.where(
+    per_trial_with_cond['Rating'] >= 3, 'familiar', 'unfamiliar'
+)
+
+per_trial_file_enhanced = os.path.join(output_dir, "per_trial_with_cond.csv")
+per_trial_with_cond.to_csv(per_trial_file_enhanced, index=False)
+print(f"Saved enhanced per-trial metrics to {per_trial_file_enhanced}")
+
+# 2. merged eye + behavioural data
+merged_file = os.path.join(output_dir, "merged_eye_behavior.csv")
+data.to_csv(merged_file, index=False)
+print(f"Saved merged eye + behavioural data to {merged_file}")
+
+# 3. summary by condition
+summary_cond_file = os.path.join(output_dir, "summary_by_condition.csv")
+summary_by_cond.to_csv(summary_cond_file)
+print(f"Saved condition-wise summary to {summary_cond_file}")
+
+# 4. per-subject summary
+per_subject_file = os.path.join(output_dir, "per_subject_summary.csv")
+per_subject.to_csv(per_subject_file, index=False)
+print(f"Saved per-subject summary to {per_subject_file}")
+
+# 5. group-level summary (Series -> DataFrame)
+group_summary_file = os.path.join(output_dir, "group_summary.csv")
+group_summary.to_frame(name='value').to_csv(group_summary_file)
+print(f"Saved group-level summary to {group_summary_file}")
+
+# 6. condition vs subject
+per_subject_cond_file = os.path.join(output_dir, "per_subject_per_condition_summary.csv")
+per_subject_cond.to_csv(per_subject_cond_file, index=False)
+print(f"Saved per-subject × condition summary to {per_subject_cond_file}")
