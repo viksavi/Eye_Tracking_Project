@@ -1,0 +1,13 @@
+Participant_ID,condition,count,total,ratio
+P01,familiar,20,30,0.6666666666666666
+P01,unfamiliar,10,30,0.3333333333333333
+P02,familiar,21,30,0.7
+P02,unfamiliar,9,30,0.3
+P03,familiar,18,30,0.6
+P03,unfamiliar,12,30,0.4
+P04,familiar,10,30,0.3333333333333333
+P04,unfamiliar,20,30,0.6666666666666666
+P05,familiar,12,30,0.4
+P05,unfamiliar,18,30,0.6
+P06,familiar,14,30,0.4666666666666667
+P06,unfamiliar,16,30,0.5333333333333333
