@@ -1,6 +1,12 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 import os
+
+STIM_DIR = "stimuli"
+OUT_DIR  = "visualisations" 
+SCREEN_W = 1920
+SCREEN_H = 1080
 
 output_dir = "export"
 os.makedirs(output_dir, exist_ok=True)
@@ -31,6 +37,11 @@ participants = {
         "beh": "eye_tracking_results/p6_behavioral_data.csv",
     },
 }
+
+def extract_image_filename(img_str: str) -> str:
+    parts = str(img_str).split('\\', 1)
+    return parts[1] if len(parts) == 2 else parts[0]
+
 def compute_velocity(df):
 
     df = df.sort_values('timestamp_us').copy()
@@ -268,6 +279,50 @@ summary_by_cond = (
 
 print("Condition-wise eye metrics (mean ± SD):", summary_by_cond)
 
+per_subj_cond = (
+    data
+    .groupby(['Participant_ID', 'condition'])
+    .agg(
+        n_images=('Image', 'nunique'),         
+        total_fixations=('n_fixations', 'sum'),
+        mean_fix_dur_ms=('mean_fix_dur_ms', 'mean'),  
+        total_dwell_ms=('total_dwell_ms', 'sum'),
+        dispersion_r=('dispersion_r', 'mean'),     
+        scanpath_len_px=('scanpath_len_px', 'sum'),   
+    )
+    .reset_index()
+)
+
+# normalized metrics
+per_subj_cond['fixations_per_image'] = (
+    per_subj_cond['total_fixations'] / per_subj_cond['n_images']
+)
+per_subj_cond['dwell_per_image_ms'] = (
+    per_subj_cond['total_dwell_ms'] / per_subj_cond['n_images']
+)
+per_subj_cond['scanpath_per_image_px'] = (
+    per_subj_cond['scanpath_len_px'] / per_subj_cond['n_images']
+)
+
+print("\nPer-subject × condition (raw + normalized):")
+print(per_subj_cond)
+
+group_cond_norm = (
+    per_subj_cond
+    .groupby('condition')
+    .agg(
+        fixations_per_image_mean=('fixations_per_image', 'mean'),
+        fixations_per_image_sd=('fixations_per_image', 'std'),
+        dwell_per_image_ms_mean=('dwell_per_image_ms', 'mean'),
+        dwell_per_image_ms_sd=('dwell_per_image_ms', 'std'),
+        scanpath_per_image_px_mean=('scanpath_per_image_px', 'mean'),
+        scanpath_per_image_px_sd=('scanpath_per_image_px', 'std'),
+    )
+)
+
+print("\nGroup-level normalized metrics by condition:")
+print(group_cond_norm)
+
 per_subject = (
     data
     .groupby('Participant_ID')
@@ -302,6 +357,88 @@ group_summary = pd.Series({
 })
 
 print("Group-level summary (across participants):", group_summary.to_frame(name='value'))
+
+def visualize_scanpath(fix_df, img_path, out_path, title=""):
+        
+    if fix_df.empty:
+        print(f"No fixations")
+        return
+
+    fix_df = fix_df.sort_values("start_time_s")
+
+    # load stimulus image
+    img = plt.imread(img_path)
+    img_h, img_w = img.shape[0], img.shape[1]
+
+    xs = fix_df["x"] * (img_w / SCREEN_W)
+    ys = fix_df["y"] * (img_h / SCREEN_H)
+
+    xs = xs.clip(0, img_w - 1)
+    ys = ys.clip(0, img_h - 1)
+
+    dpi = 100
+    fig = plt.figure(figsize=(img_w / dpi, img_h / dpi), dpi=dpi)
+    ax = fig.add_axes([0, 0, 1, 1]) 
+
+    ax.imshow(img)
+    ax.axis("off")
+    ax.set_xlim(0, img_w)
+    ax.set_ylim(img_h, 0)
+
+    sizes = fix_df["duration_s"] * 1000.0 * 0.5 
+
+    ax.scatter(
+        xs,
+        ys,
+        s=sizes,
+        c="red",
+        alpha=0.6,
+        edgecolors="black",
+        linewidths=0.5,
+    )
+
+    ax.plot(xs, ys, "-o", alpha=0.4, color="red")
+
+    fig.savefig(out_path, bbox_inches="tight", dpi=dpi)
+    plt.close(fig)
+    #print(f"[SAVED] {out_path}")
+
+
+def generate_scanpath_plots():
+    participants_to_plot = sorted(all_fixations['Participant_ID'].unique())
+
+    for pid in participants_to_plot:
+        beh_p = all_behaviour[all_behaviour['Participant_ID'] == pid].copy()
+        beh_p = beh_p.reset_index(drop=True)
+
+        out_dir_pid = os.path.join(OUT_DIR, pid)
+        os.makedirs(out_dir_pid, exist_ok=True)
+
+        for idx, row in beh_p.iterrows():
+            img_key = row['Image']            
+            img_file = extract_image_filename(img_key)
+            img_path = os.path.join(STIM_DIR, img_file)
+
+            trial_fix = all_fixations[
+                (all_fixations['Participant_ID'] == pid) &
+                (all_fixations['Image'] == img_key)
+            ].copy()
+
+            if trial_fix.empty:
+                print(f"No fixations for {pid}, trial {idx+1}, image {img_key}")
+                continue
+
+            base_name = f"{pid}_trial-{idx+1:02d}_{os.path.splitext(img_file)[0]}"
+            out_path  = os.path.join(out_dir_pid, base_name + "_scanpath.png")
+
+            title = f"{pid} | trial {idx+1} | {img_file}"
+
+            # save scanpath plot
+            visualize_scanpath(trial_fix, img_path, out_path, title=title)
+    print("Scanpath plots are generated for each participant")
+
+generate_scanpath_plots()
+
 
 per_subject_cond = (
     data
